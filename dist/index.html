@@ -7,11 +7,31 @@
   <title>Surface Detecting</title>
 </head>
 <style>
+  .wrapper {
+    display: flex;
+    flex-direction: column;
+    width: 640px;
+    margin: 0 auto;
+  }
+
   canvas {
     transform: rotateY(180deg);
   }
+  
+  button {
+    display: block;
+    border-radius: none;
+    border: none;
+    height: 48px;
+    background-color: aqua;
+    cursor: pointer;
+  }
 </style>
 <body>
+  <div class="wrapper">
+    <canvas id="canvas"></canvas>
+    <button id="trainBtn"> Train pattern </button>
+  </div>
   <script src="index.js" type="module"></script>
 </body>
 </html>
