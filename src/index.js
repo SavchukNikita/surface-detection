@@ -17,18 +17,25 @@ let matches = [];
 let homography3Matrix = new jsfeat.matrix_t(3,3,jsfeat.F32C1_t);
 let matchMask = new jsfeat.matrix_t(500,1,jsfeat.U8C1_t);
 let patternDescriptors = [];
-let pattern_corners = [];
+let patternCorners = [];
 
 let imgU8;
-let pattern_preview;
+let patternPeview;
 
 const initApp = () => {
   canvas.width = IMG_WIDTH;
   canvas.height = IMG_HEIGHT;
 
+  jsfeat.fast_corners.set_threshold(15)
+
   for (let i = 0; i < IMG_WIDTH*IMG_HEIGHT; i += 1) {
     screenCorners.push(new jsfeat.keypoint_t(0,0,0,0,-1));
-    matches[i] = new match_t();
+    matches[i] = {
+      screen_idx: 0,
+      pattern_lev: 0,
+      pattern_idx: 0,
+      distance: 0,
+    }
   }
 
   tick();
@@ -47,92 +54,77 @@ const tick = () => {
   let imgU8Blured = Object.assign(imgU8); 
   jsfeat.imgproc.gaussian_blur(imgU8, imgU8Blured, BLUR_RADIUS);
 
-  jsfeat.yape06.laplacian_threshold = 30;
-  jsfeat.yape06.min_eigen_value_threshold = 25;
-
-  let cornersNum = jsfeat.yape06.detect(imgU8Blured, screenCorners, 17);
+  let cornersNum = jsfeat.fast_corners.detect(imgU8Blured, screenCorners, 3);
 
   jsfeat.orb.describe(imgU8Blured, screenCorners, cornersNum, screenDescriptors);
-
   let dataU32 = new Uint32Array(imageData.data.buffer);
-  render_corners(screenCorners, cornersNum, dataU32, IMG_WIDTH);
+  renderCorners(screenCorners, cornersNum, dataU32, IMG_WIDTH);
 
-  let num_matches = 0;
-  let good_matches = 0;
+  let numMatches = 0;
+  let goodMatches = 0;
 
-  if (pattern_preview) {
-    renderPatternImg(pattern_preview.data, dataU32, pattern_preview.cols, pattern_preview.rows, 640);
-    num_matches = match_pattern();
-    good_matches = find_transform(matches, num_matches);
-
-    console.log(num_matches)
+  if (patternPeview) {
+    renderPatternImg(patternPeview.data, dataU32, patternPeview.cols, patternPeview.rows, IMG_WIDTH);
+    numMatches = matchPattern();
+    goodMatches = findTransform(matches, numMatches);
   }
 
-  canvasCtx.putImageData(imageData, 0, 0)
-  render_matches(canvasCtx, matches, num_matches);
+  canvasCtx.putImageData(imageData, 0, 0);
+
+  renderMatches(canvasCtx, matches, numMatches);
 }
 
-const match_pattern = () => {
-  var q_cnt = screenDescriptors.rows;
-  var query_du8 = screenDescriptors.data;
-  var query_u32 = screenDescriptors.buffer.i32; // cast to integer buffer
-  var qd_off = 0;
-  var qidx=0,lev=0,pidx=0,k=0;
-  var num_matches = 0;
+const matchPattern = () => {
+  let qCount = screenDescriptors.rows;
+  let qU32 = screenDescriptors.buffer.i32;
+  let qOff = 0;
+  let numMatches = 0;
 
-  for(qidx = 0; qidx < q_cnt; ++qidx) {
-      var best_dist = 256;
-      var best_dist2 = 256;
-      var best_idx = -1;
-      var best_lev = -1;
+  for(let qidx = 0; qidx < qCount; qidx += 1) {
+      let bestDist = 256;
+      let bestDistCurr = 256;
+      let bestIdx = -1;
+      let bestLev = -1;
 
-      for(lev = 0; lev < TRAIN_LVLS; ++lev) {
-          var lev_descr = patternDescriptors[lev];
-          var ld_cnt = lev_descr.rows;
-          var ld_i32 = lev_descr.buffer.i32; // cast to integer buffer
-          var ld_off = 0;
+      for(let lev = 0; lev < TRAIN_LVLS; lev += 1) {
+          let levDescriptors = patternDescriptors[lev];
+          let LDCount = levDescriptors.rows;
+          let LDI32 = levDescriptors.buffer.i32;
+          let LDOff = 0;
 
-          for(pidx = 0; pidx < ld_cnt; ++pidx) {
+          for(let pidx = 0; pidx < LDCount; ++pidx) {
 
-              var curr_d = 0;
-              // our descriptor is 32 bytes so we have 8 Integers
-              for(k=0; k < 8; ++k) {
-                  curr_d += popcnt32( query_u32[qd_off+k]^ld_i32[ld_off+k] );
+              let curr = 0;
+
+              for(let k=0; k < 8; ++k) {
+                  curr += popcnt32( qU32[qOff+k]^LDI32[LDOff+k] );
               }
 
-              if(curr_d < best_dist) {
-                  best_dist2 = best_dist;
-                  best_dist = curr_d;
-                  best_lev = lev;
-                  best_idx = pidx;
-              } else if(curr_d < best_dist2) {
-                  best_dist2 = curr_d;
+              if(curr < bestDist) {
+                  bestDistCurr = bestDist;
+                  bestDist = curr;
+                  bestLev = lev;
+                  bestIdx = pidx;
+              } else if(curr < bestDistCurr) {
+                  bestDistCurr = curr;
               }
 
-              ld_off += 8; // next descriptor
+              LDOff += 8;
           }
       }
-
-      // filter out by some threshold
-      // if(best_dist < 5) {
-      //     matches[num_matches].screen_idx = qidx;
-      //     matches[num_matches].pattern_lev = best_lev;
-      //     matches[num_matches].pattern_idx = best_idx;
-      //     num_matches++;
-      // }
       
 
-      if(best_dist < 0.8*best_dist2) {
-          matches[num_matches].screen_idx = qidx;
-          matches[num_matches].pattern_lev = best_lev;
-          matches[num_matches].pattern_idx = best_idx;
-          num_matches++;
+      if(bestDist < 0.8*bestDistCurr) {
+          matches[numMatches].screen_idx = qidx;
+          matches[numMatches].pattern_lev = bestLev;
+          matches[numMatches].pattern_idx = bestIdx;
+          numMatches++;
       }
 
-      qd_off += 8; // next query descriptor
+      qOff += 8;
   }
 
-  return num_matches;
+  return numMatches;
 }
 
 function popcnt32(n) {
@@ -142,175 +134,141 @@ function popcnt32(n) {
 }
 
 const renderPatternImg = (src, dst, sw, sh, dw) => {
-  var alpha = (0xff << 24);
-  for(var i = 0; i < sh; ++i) {
-      for(var j = 0; j < sw; ++j) {
-          var pix = src[i*sw+j];
+  let alpha = (0xff << 24);
+  for(let i = 0; i < sh; ++i) {
+      for(let j = 0; j < sw; ++j) {
+          let pix = src[i*sw+j];
           dst[i*dw+j] = alpha | (pix << 16) | (pix << 8) | pix;
       }
   }
 }
 
-const render_matches = (ctx, matches, count) => {
-  for(var i = 0; i < count; ++i) {
-      var m = matches[i];
-      var s_kp = screenCorners[m.screen_idx];
-      var p_kp = pattern_corners[m.pattern_lev][m.pattern_idx];
+const renderMatches = (ctx, matches, count) => {
+  for(let i = 0; i < count; ++i) {
+      let m = matches[i];
+      let screenPoint = screenCorners[m.screen_idx];
+      let patternPoint = patternCorners[m.pattern_lev][m.pattern_idx];
+
       ctx.strokeStyle = "rgb(0,255,0)";
       ctx.beginPath();
-      ctx.moveTo(s_kp.x,s_kp.y);
-      ctx.lineTo(p_kp.x*0.5, p_kp.y*0.5);
+      ctx.moveTo(screenPoint.x,screenPoint.y);
+      ctx.lineTo(patternPoint.x*0.5, patternPoint.y*0.5);
       ctx.lineWidth=1;
       ctx.stroke();
   }
 }
 
-const render_corners = (corners, count, img, step) => {
-  var pix = (0xff << 24) | (0x00 << 16) | (0xff << 8) | 0x00;
+const renderCorners = (corners, count, img, step) => {
+  let pix = (0xff << 24) | (0x00 << 16) | (0xff << 8) | 0x00;
   
-  for(var i=0; i < count; i+=1)
+  for(let i=0; i < count; i+=1)
   {
-      var x = corners[i].x;
-      var y = corners[i].y;
-      var off = (x + y * step);
+      let x = corners[i].x;
+      let y = corners[i].y;
+      let off = (x + y * step);
       img[off] = pix;
   }
 }
 
-var match_t = (function () {
-  function match_t(screen_idx, pattern_lev, pattern_idx, distance) {
-      if (typeof screen_idx === "undefined") { screen_idx=0; }
-      if (typeof pattern_lev === "undefined") { pattern_lev=0; }
-      if (typeof pattern_idx === "undefined") { pattern_idx=0; }
-      if (typeof distance === "undefined") { distance=0; }
+function findTransform(matches, count) {
+  let motionModelKernel = new jsfeat.motion_model.homography2d();
+  let ransacParam = new jsfeat.ransac_params_t(4, 3, 0.5, 0.99);
 
-      this.screen_idx = screen_idx;
-      this.pattern_lev = pattern_lev;
-      this.pattern_idx = pattern_idx;
-      this.distance = distance;
-  }
-  return match_t;
-})();
+  let patternCoords = [];
+  let screenCoords = [];
 
-function find_transform(matches, count) {
-  // motion kernel
-  var mm_kernel = new jsfeat.motion_model.homography2d();
-  // ransac params
-  var num_model_points = 4;
-  var reproj_threshold = 3;
-  var ransac_param = new jsfeat.ransac_params_t(num_model_points,
-                                                reproj_threshold, 0.5, 0.99);
-
-  var pattern_xy = [];
-  var screen_xy = [];
-
-  // construct correspondences
-  for(var i = 0; i < count; ++i) {
-      var m = matches[i];
-      var s_kp = screenCorners[m.screen_idx];
-      var p_kp = pattern_corners[m.pattern_lev][m.pattern_idx];
-      pattern_xy[i] = {"x":p_kp.x, "y":p_kp.y};
-      screen_xy[i] =  {"x":s_kp.x, "y":s_kp.y};
+  for (let i = 0; i < count; i += 1) {
+      let m = matches[i];
+      let screenPoint = screenCorners[m.screen_idx];
+      let patternPoint = patternCorners[m.pattern_lev][m.pattern_idx];
+      patternCoords[i] = {"x":patternPoint.x, "y":patternPoint.y};
+      screenCoords[i] =  {"x":screenPoint.x, "y":screenPoint.y};
   }
 
-  // estimate motion
-  var ok = false;
-  ok = jsfeat.motion_estimator.ransac(ransac_param, mm_kernel,
-                                      pattern_xy, screen_xy, count, homography3Matrix, matchMask, 1000);
+  let isSuccessRansac = jsfeat.motion_estimator.ransac(ransacParam,motionModelKernel, patternCoords, screenCoords, count, homography3Matrix, matchMask, 1000);
 
-  // extract good matches and re-estimate
-  var good_cnt = 0;
-  if(ok) {
-      for(var i=0; i < count; ++i) {
+  let goodPointsCount = 0;
+  if (isSuccessRansac) {
+      for(let i = 0; i < count; i += 1) {
           if(matchMask.data[i]) {
-              pattern_xy[good_cnt].x = pattern_xy[i].x;
-              pattern_xy[good_cnt].y = pattern_xy[i].y;
-              screen_xy[good_cnt].x = screen_xy[i].x;
-              screen_xy[good_cnt].y = screen_xy[i].y;
-              good_cnt++;
+              patternCoords[goodPointsCount].x = patternCoords[i].x;
+              patternCoords[goodPointsCount].y = patternCoords[i].y;
+              screenCoords[goodPointsCount].x = screenCoords[i].x;
+              screenCoords[goodPointsCount].y = screenCoords[i].y;
+              goodPointsCount += 1;
           }
       }
-      // run kernel directly with inliers only
-      mm_kernel.run(pattern_xy, screen_xy, homography3Matrix, good_cnt);
+      motionModelKernel.run(patternCoords, screenCoords, homography3Matrix, goodPointsCount);
   } else {
       jsfeat.matmath.identity_3x3(homography3Matrix, 1.0);
   }
 
-  return good_cnt;
+  return goodPointsCount;
 }
 
 const setTrainImage = () => {
-  console.log('hii')
-  var lev=0, i=0;
-  var sc = 1.0;
-  var max_pattern_size = 512;
-  var max_per_level = 300;
-  var sc_inc = Math.sqrt(2.0); // magic number ;)
-  var lev0_img = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
-  var lev_img = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
-  var new_width=0, new_height=0;
-  var lev_corners, lev_descr;
-  var corners_num=0;
+  let i=0;
+  let sc = 1.0;
+  let maxPatternSize = 512;
+  let maxPerLevel = 300;
+  // магическое число
+  let scBase = Math.sqrt(2.0);
+  let levBaseImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
+  let levImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
+  let nWidth=0
+  let nHeight=0;
+  let cornersNum=0;
+  let sc0 = Math.min(maxPatternSize/imgU8.cols, maxPatternSize/imgU8.rows);
 
-  var sc0 = Math.min(max_pattern_size/imgU8.cols, max_pattern_size/imgU8.rows);
-  new_width = (imgU8.cols*sc0)|0;
-  new_height = (imgU8.rows*sc0)|0;
+  let levCorners, levDescriptors;
 
-  jsfeat.imgproc.resample(imgU8, lev0_img, new_width, new_height);
+  nWidth = (imgU8.cols*sc0)|0;
+  nHeight = (imgU8.rows*sc0)|0;
 
-  // prepare preview
-  pattern_preview = new jsfeat.matrix_t(new_width>>1, new_height>>1, jsfeat.U8_t | jsfeat.C1_t);
-  jsfeat.imgproc.pyrdown(lev0_img, pattern_preview);
+  jsfeat.imgproc.resample(imgU8, levBaseImg, nWidth, nHeight);
 
-  for(lev=0; lev < TRAIN_LVLS; ++lev) {
-      pattern_corners[lev] = [];
-      lev_corners = pattern_corners[lev];
+  patternPeview = new jsfeat.matrix_t(nWidth>>1, nHeight>>1, jsfeat.U8_t | jsfeat.C1_t);
+  jsfeat.imgproc.pyrdown(levBaseImg, patternPeview);
 
-      // preallocate corners array
-      i = (new_width*new_height) >> lev;
+  for(let lev=0; lev < TRAIN_LVLS; lev += 1) {
+      patternCorners[lev] = [];
+      levCorners = patternCorners[lev];
+
+      i = (nWidth*nHeight) >> lev;
       while(--i >= 0) {
-          lev_corners[i] = new jsfeat.keypoint_t(0,0,0,0,-1);
+          levCorners[i] = new jsfeat.keypoint_t(0,0,0,0,-1);
       }
 
-      patternDescriptors[lev] = new jsfeat.matrix_t(32, max_per_level, jsfeat.U8_t | jsfeat.C1_t);
+      patternDescriptors[lev] = new jsfeat.matrix_t(32, maxPerLevel, jsfeat.U8_t | jsfeat.C1_t);
   }
 
-  // do the first level
-  lev_corners = pattern_corners[0];
-  lev_descr = patternDescriptors[0];
+  levCorners = patternCorners[0];
+  levDescriptors = patternDescriptors[0];
 
-  jsfeat.imgproc.gaussian_blur(lev0_img, lev_img, BLUR_RADIUS);
-  corners_num = jsfeat.yape06.detect(lev_img, lev_corners, 5);
-  jsfeat.orb.describe(lev_img, lev_corners, corners_num, lev_descr);
+  jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, BLUR_RADIUS);
+  cornersNum = jsfeat.fast_corners.detect(levImg, levCorners, 5);
+  jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
-  console.log("train " + lev_img.cols + "x" + lev_img.rows + " points: " + corners_num);
+  sc /= scBase;
 
-  sc /= sc_inc;
+  for(let lev = 1; lev < TRAIN_LVLS; lev += 1) {
+      levCorners = patternCorners[lev];
+      levDescriptors = patternDescriptors[lev];
 
-  // lets do multiple scale levels
-  // we can use Canvas context draw method for faster resize
-  // but its nice to demonstrate that you can do everything with jsfeat
-  for(lev = 1; lev < TRAIN_LVLS; ++lev) {
-      lev_corners = pattern_corners[lev];
-      lev_descr = patternDescriptors[lev];
+      nWidth = (levBaseImg.cols*sc)|0;
+      nHeight = (levBaseImg.rows*sc)|0;
 
-      new_width = (lev0_img.cols*sc)|0;
-      new_height = (lev0_img.rows*sc)|0;
+      jsfeat.imgproc.resample(levBaseImg, levImg, nWidth, nHeight);
+      jsfeat.imgproc.gaussian_blur(levImg, levImg, BLUR_RADIUS);
+      cornersNum = jsfeat.fast_corners.detect(levImg, levCorners, 5);
+      jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
-      jsfeat.imgproc.resample(lev0_img, lev_img, new_width, new_height);
-      jsfeat.imgproc.gaussian_blur(lev_img, lev_img, BLUR_RADIUS);
-      corners_num = jsfeat.yape06.detect(lev_img, lev_corners, 5);
-      jsfeat.orb.describe(lev_img, lev_corners, corners_num, lev_descr);
-
-      // fix the coordinates due to scale level
-      for(i = 0; i < corners_num; ++i) {
-          lev_corners[i].x *= 1./sc;
-          lev_corners[i].y *= 1./sc;
+      for(i = 0; i < cornersNum; ++i) {
+          levCorners[i].x *= 1./sc;
+          levCorners[i].y *= 1./sc;
       }
 
-      console.log("train " + lev_img.cols + "x" + lev_img.rows + " points: " + corners_num);
-
-      sc /= sc_inc;
+      sc /= scBase;
   }
 };
 
@@ -328,9 +286,9 @@ trainBtm.addEventListener('click', setTrainImage)
 
 
 // const detectKeypoints = (img, corners) => {
-//   var count = jsfeat.yape06.detect(img, corners, 17);
+//   let count = jsfeat.yape06.detect(img, corners, 17);
 
-//   for(var i = 0; i < count; ++i) {
+//   for(let i = 0; i < count; ++i) {
 //       corners[i].angle = icAngle(img, corners[i].x, corners[i].y);
 //   }
 
