@@ -71,7 +71,10 @@ const tick = () => {
 
   canvasCtx.putImageData(imageData, 0, 0);
 
-  renderMatches(canvasCtx, matches, numMatches);
+  if (numMatches) {
+    renderMatches(canvasCtx, matches, numMatches);
+    renderSurfaceShape();
+  }
 }
 
 const matchPattern = () => {
@@ -206,6 +209,242 @@ function findTransform(matches, count) {
   return goodPointsCount;
 }
 
+let startbox = {x:[],y:[]};
+let linesbox = [{x:[],y:[]}, {x:[],y:[]},{x:[],y:[]}, {x:[],y:[]}]
+
+const renderSurfaceShape = () => {
+  let coords = [];
+  let shapePlots = affineTransform(homography3Matrix.data, patternPeview.cols * 2, patternPeview.rows * 2);
+
+  canvasCtx.strokeStyle = "#0000FF"
+  canvasCtx.beginPath();
+
+  let intersect = false;
+
+  if (
+    isIntersect(shapePlots[0], shapePlots[1], shapePlots[2], shapePlots[3]) ||
+    isIntersect(shapePlots[1], shapePlots[2], shapePlots[3], shapePlots[0])
+  ) {
+        intersect = true;
+  }
+
+  const avesize = 20;
+
+  if (!intersect) {
+    for (let i = 0; i < 4; i++) {
+      if (i == 0) {
+        if (startbox.x.length < avesize) {
+          startbox.x.push(shapePlots[i].x)
+        } else {
+          startbox.x.shift();
+          let xvertex = cases(shapePlots[i].x, startbox.x);
+
+          startbox.x.push(xvertex);
+        }
+
+        if (startbox.y.length < avesize) {
+          startbox.y.push(shapePlots[i].y);
+        } else {
+          startbox.y.shift();
+          let yvertexs = cases(shapePlots[i].y, startbox.y);
+          startbox.y.push(yvertexs);
+        }
+      }
+
+      if (linesbox[i].x.length < avesize) {
+        linesbox[i].x.push(shapePlots[i].x)
+      } else {
+        linesbox[i].x.shift();
+        let xvertex = cases(shapePlots[i].x, linesbox[i].x);
+
+        linesbox[i].x.push(xvertex);
+      }
+
+      if (linesbox[i].y.length < avesize ) {
+        linesbox[i].y.push(shapePlots[i].y);
+      } else {
+        linesbox[i].y.shift();
+        let yvertex = cases(shapePlots[i].y, linesbox[i].y);
+        linesbox[i].y.push(yvertex);
+      }
+    }
+  }
+
+  let minmaxX = [];
+  let minmaxY = [];
+
+  canvasCtx.moveTo(average(startbox.x), average(startbox.y));
+  
+  for ( let i = 1; i < 4; i++ ) {
+    canvasCtx.lineTo(average(linesbox[i].x), average(linesbox[i].y));
+  }
+
+  canvasCtx.lineTo(average(linesbox[0].x), average(linesbox[0].y));
+  canvasCtx.lineWidth = 4;
+  canvasCtx.stroke();
+}
+
+const cases = (v, l) => {
+  let vv = 0;
+  const av = average(l);
+
+  if (v < av - 25) return av - 25;
+
+  if (v > av + 25) return av + 25;
+
+  return v;
+}
+
+const isIntersect = (c1, c2, c3, c4) => {
+  var aDx = Math.abs(c2.x - c1.x);
+  var aDy = Math.abs(c2.y - c1.y);
+  var bDx = Math.abs(c4.x - c3.x);
+  var bDy = Math.abs(c4.y - c3.y);
+  var s = (-aDy * (c1.x - c3.x) + aDx * (c1.y - c3.y)) / (-bDx * aDy + aDx * bDy);
+  var t = (+bDx * (c1.y - c3.y) - bDy * (c1.x - c3.x)) / (-bDx * aDy + aDx * bDy);
+  return (s >= 0 && s <= 1 && t >= 0 && t <= 1);
+}
+
+const affineTransform = (matrix, w, h) => {
+  let pt = [
+    { x:0, y: 0},
+    { x: w, y: 0},
+    { x: w, y: h},
+    { x: 0, y: h},
+  ];
+
+  let px = 0;
+  let py = 0;
+  let z = 0;
+
+  for ( let i = 0; i < pt.length; i++ ) {
+    px = matrix[0]*pt[i].x + matrix[1]*pt[i].y + matrix[2];
+    py = matrix[3]*pt[i].x + matrix[4]*pt[i].y + matrix[5];
+    z = matrix[6]*pt[i].x + matrix[7]*pt[i].y + matrix[8];
+
+    pt[i].x = px/z;
+    pt[i].y = py/z;
+  }
+
+  return pt;
+}
+
+function render_pattern_shape(ctx) {
+  // get the projected pattern corners
+  var coords = [];
+  var shape_pts = tCorners(homo3x3.data, pattern_preview.cols*2, pattern_preview.rows*2);
+  ctx.strokeStyle = "rgb(0,0,255)";
+  ctx.beginPath();
+  //E: just a simple adjustment of the box, by using moving averages
+  var intersect = false;
+  if (lineSegmentsIntersect(shape_pts[0].x,shape_pts[0].y, shape_pts[1].x,shape_pts[1].y, shape_pts[2].x,shape_pts[2].y, shape_pts[3].x,shape_pts[3].y)) {
+    intersect = true;
+  };
+  if (lineSegmentsIntersect(shape_pts[1].x,shape_pts[1].y, shape_pts[2].x,shape_pts[2].y, shape_pts[3].x,shape_pts[3].y, shape_pts[0].x,shape_pts[0].y)) {
+    intersect = true;
+  };
+  
+  const avesize = 20;
+  
+  function cases(v,l){
+      let vv;
+      switch(v){
+          case v < average(l) - 25:
+              vv = average(l) - 25;
+              break;
+          case v > average(l) + 25:
+              vv =  average(l) + 25;
+              break;
+          default:
+              vv = v;
+      };
+      return vv;
+  }
+  
+  if (!intersect) {
+    for (let i = 0; i < 4; ++i){
+        if (i === 0) {
+          if (startbox.x.length < avesize) {
+            startbox.x.push(shape_pts[i].x)
+          }else{
+            let xvertexs = shape_pts[i].x;
+            startbox.x.shift()
+            //console.log(xvertexs)
+            if(xvertexs < average(startbox.x) - 25){
+              xvertexs = average(startbox.x) - 25;
+            }else if (xvertexs > average(startbox.x) + 25) {
+              xvertexs = average(startbox.x) + 25;
+            };
+            //console.log(xvertexs)
+            startbox.x.push(xvertexs)
+          };
+          if (startbox.y.length < avesize) {
+            startbox.y.push(shape_pts[i].y)
+          }else{
+            let yvertexs = shape_pts[i].y;
+            startbox.y.shift()
+            //console.log(yvertexs)
+            if(yvertexs < average(startbox.y) - 25){
+              yvertexs = average(startbox.y) - 25;
+            }else if (yvertexs > average(startbox.y) + 25) {
+              yvertexs = average(startbox.y) + 25;
+            };
+            //console.log(yvertexs)
+            startbox.y.push(yvertexs)
+          }
+        };
+        if (linesbox[i].x.length < avesize) {
+          linesbox[i].x.push(shape_pts[i].x)
+        }else{
+          let xvertex = cases(shape_pts[i].x, linesbox[i].x);
+          linesbox[i].x.shift()
+            if(xvertex < average(linesbox[i].x) - 25){
+              xvertex = average(linesbox[i].x) - 25;
+            }else if (xvertex > average(linesbox[i].x) + 25) {
+              xvertex = average(linesbox[i].x) + 25;
+            };
+          linesbox[i].x.push(xvertex)
+        };
+        if (linesbox[i].y.length < avesize) {
+          linesbox[i].y.push(shape_pts[i].y)
+        }else{
+          let yvertex = cases(shape_pts[i].y, linesbox[i].y);
+          linesbox[i].y.shift()
+            if(yvertex < average(linesbox[i].y) - 25){
+              yvertex = average(linesbox[i].y) - 25;
+            }else if (yvertex > average(linesbox[i].y) + 25) {
+              yvertex = average(linesbox[i].y) + 25;
+            };
+          linesbox[i].y.push(yvertex)
+        }
+    };
+  }
+
+  let findminmaxX = [];
+  let findminmaxY = [];
+  ctx.moveTo(average(startbox.x),average(startbox.y));
+  for(let i = 1; i < 4; ++i){
+    ctx.lineTo(average(linesbox[i].x),average(linesbox[i].y));
+    findminmaxX.push(average(linesbox[i].x));
+    findminmaxY.push(average(linesbox[i].y));
+  }
+  ctx.lineTo(average(linesbox[0].x),average(linesbox[0].y));
+  findminmaxX.push(average(linesbox[0].x));
+  findminmaxY.push(average(linesbox[0].y));
+  ctx.lineWidth=4;
+  ctx.stroke();
+  var coords = [];
+  //console.log(Math.min(...findminmaxX));
+  coords.push(Math.min(...findminmaxX));
+  coords.push(Math.min(...findminmaxY));
+  coords.push(Math.max(...findminmaxX));
+  coords.push(Math.max(...findminmaxY));
+  COORDS = []
+  COORDS.push(coords)
+  //aFrame.coords = coords;
+  
+}
+
 const setTrainImage = () => {
   let i=0;
   let sc = 1.0;
@@ -272,6 +511,14 @@ const setTrainImage = () => {
   }
 };
 
+// утилиты
+
+const average = (arr) => {
+  if (!arr.length) return;
+
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+}
+
 navigator.mediaDevices.getUserMedia({ video: true })
   .then((stream) => {
     video.srcObject = stream;
@@ -282,6 +529,8 @@ video.addEventListener('loadeddata', initApp);
 
 const trainBtm = document.getElementById('trainBtn');
 trainBtm.addEventListener('click', setTrainImage)
+
+navigator.mediaDevices.enumerateDevices().then((list) => console.log(list));
 
 
 
