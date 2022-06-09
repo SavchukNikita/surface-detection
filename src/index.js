@@ -5,6 +5,7 @@ const U_MAX = new Int32Array([15,15,15,15,14,14,14,13,13,12,11,10,9,8,6,3,0]);
 const IMG_WIDTH = 640;
 const IMG_HEIGHT = 480;
 const TRAIN_LVLS = 4;
+const MAX_ALLOWED_KEYPOINTS = 500;
 
 
 const video = document.createElement('video');
@@ -54,7 +55,7 @@ const tick = () => {
   let imgU8Blured = Object.assign(imgU8); 
   jsfeat.imgproc.gaussian_blur(imgU8, imgU8Blured, BLUR_RADIUS);
 
-  let cornersNum = jsfeat.fast_corners.detect(imgU8Blured, screenCorners, 3);
+  let cornersNum = detectKeypoints(imgU8Blured, screenCorners);
 
   jsfeat.orb.describe(imgU8Blured, screenCorners, cornersNum, screenDescriptors);
   let dataU32 = new Uint32Array(imageData.data.buffer);
@@ -485,7 +486,7 @@ const setTrainImage = () => {
   levDescriptors = patternDescriptors[0];
 
   jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, BLUR_RADIUS);
-  cornersNum = jsfeat.fast_corners.detect(levImg, levCorners, 5);
+  cornersNum = detectKeypoints(levImg, levCorners);
   jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
   sc /= scBase;
@@ -499,7 +500,7 @@ const setTrainImage = () => {
 
       jsfeat.imgproc.resample(levBaseImg, levImg, nWidth, nHeight);
       jsfeat.imgproc.gaussian_blur(levImg, levImg, BLUR_RADIUS);
-      cornersNum = jsfeat.fast_corners.detect(levImg, levCorners, 5);
+      cornersNum = detectKeypoints(levImg, levCorners);
       jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
       for(i = 0; i < cornersNum; ++i) {
@@ -534,36 +535,13 @@ navigator.mediaDevices.enumerateDevices().then((list) => console.log(list));
 
 
 
-// const detectKeypoints = (img, corners) => {
-//   let count = jsfeat.yape06.detect(img, corners, 17);
+const detectKeypoints = (img, corners) => {
+  let count = jsfeat.fast_corners.detect(img, corners, 17);
 
-//   for(let i = 0; i < count; ++i) {
-//       corners[i].angle = icAngle(img, corners[i].x, corners[i].y);
-//   }
+  if(count > MAX_ALLOWED_KEYPOINTS) {
+    jsfeat.math.qsort(corners, 0, count-1, function (a,b) { return (b.score<a.score) });
+    count = MAX_ALLOWED_KEYPOINTS;
+  }
 
-//   return count;
-// }
-
-// const icAngle = (img, px, py) => {
-//   let m_01 = 0, m_10 = 0;
-//   let src = img.data, step = img.cols;
-//   let u = 0, v = 0, center_off = (py*step + px) | 0;
-//   let v_sum = 0, d = 0, val_plus = 0, val_minus = 0;
-
-//   for (u = -U_MAX.length; u <= U_MAX.length; ++u)
-//       m_10 += u * src[center_off+u];
-
-//   for (v = 1; v <= U_MAX.length; ++v) {
-//       v_sum = 0;
-//       d = U_MAX[v];
-//       for (u = -d; u <= d; ++u) {
-//           val_plus = src[center_off+u+v*step];
-//           val_minus = src[center_off+u-v*step];
-//           v_sum += (val_plus - val_minus);
-//           m_10 += u * (val_plus + val_minus);
-//       }
-//       m_01 += v * v_sum;
-//   }
-
-//   return Math.atan2(m_01, m_10);
-// }
+  return count;
+}
