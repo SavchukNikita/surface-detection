@@ -189,10 +189,10 @@ function findTransform(matches, count) {
       screenCoords[i] =  {"x":screenPoint.x, "y":screenPoint.y};
   }
 
-  let isSuccessRansac = jsfeat.motion_estimator.ransac(ransacParam,motionModelKernel, patternCoords, screenCoords, count, homography3Matrix, matchMask, 1000);
-
+  let isSuccess = jsfeat.motion_estimator.lmeds(ransacParam,motionModelKernel, patternCoords, screenCoords, count, homography3Matrix, matchMask, 1000);
+  
   let goodPointsCount = 0;
-  if (isSuccessRansac) {
+  if (isSuccess) {
       for(let i = 0; i < count; i += 1) {
           if(matchMask.data[i]) {
               patternCoords[goodPointsCount].x = patternCoords[i].x;
@@ -328,122 +328,6 @@ const affineTransform = (matrix, w, h) => {
   }
 
   return pt;
-}
-
-function render_pattern_shape(ctx) {
-  // get the projected pattern corners
-  var coords = [];
-  var shape_pts = tCorners(homo3x3.data, pattern_preview.cols*2, pattern_preview.rows*2);
-  ctx.strokeStyle = "rgb(0,0,255)";
-  ctx.beginPath();
-  //E: just a simple adjustment of the box, by using moving averages
-  var intersect = false;
-  if (lineSegmentsIntersect(shape_pts[0].x,shape_pts[0].y, shape_pts[1].x,shape_pts[1].y, shape_pts[2].x,shape_pts[2].y, shape_pts[3].x,shape_pts[3].y)) {
-    intersect = true;
-  };
-  if (lineSegmentsIntersect(shape_pts[1].x,shape_pts[1].y, shape_pts[2].x,shape_pts[2].y, shape_pts[3].x,shape_pts[3].y, shape_pts[0].x,shape_pts[0].y)) {
-    intersect = true;
-  };
-  
-  const avesize = 20;
-  
-  function cases(v,l){
-      let vv;
-      switch(v){
-          case v < average(l) - 25:
-              vv = average(l) - 25;
-              break;
-          case v > average(l) + 25:
-              vv =  average(l) + 25;
-              break;
-          default:
-              vv = v;
-      };
-      return vv;
-  }
-  
-  if (!intersect) {
-    for (let i = 0; i < 4; ++i){
-        if (i === 0) {
-          if (startbox.x.length < avesize) {
-            startbox.x.push(shape_pts[i].x)
-          }else{
-            let xvertexs = shape_pts[i].x;
-            startbox.x.shift()
-            //console.log(xvertexs)
-            if(xvertexs < average(startbox.x) - 25){
-              xvertexs = average(startbox.x) - 25;
-            }else if (xvertexs > average(startbox.x) + 25) {
-              xvertexs = average(startbox.x) + 25;
-            };
-            //console.log(xvertexs)
-            startbox.x.push(xvertexs)
-          };
-          if (startbox.y.length < avesize) {
-            startbox.y.push(shape_pts[i].y)
-          }else{
-            let yvertexs = shape_pts[i].y;
-            startbox.y.shift()
-            //console.log(yvertexs)
-            if(yvertexs < average(startbox.y) - 25){
-              yvertexs = average(startbox.y) - 25;
-            }else if (yvertexs > average(startbox.y) + 25) {
-              yvertexs = average(startbox.y) + 25;
-            };
-            //console.log(yvertexs)
-            startbox.y.push(yvertexs)
-          }
-        };
-        if (linesbox[i].x.length < avesize) {
-          linesbox[i].x.push(shape_pts[i].x)
-        }else{
-          let xvertex = cases(shape_pts[i].x, linesbox[i].x);
-          linesbox[i].x.shift()
-            if(xvertex < average(linesbox[i].x) - 25){
-              xvertex = average(linesbox[i].x) - 25;
-            }else if (xvertex > average(linesbox[i].x) + 25) {
-              xvertex = average(linesbox[i].x) + 25;
-            };
-          linesbox[i].x.push(xvertex)
-        };
-        if (linesbox[i].y.length < avesize) {
-          linesbox[i].y.push(shape_pts[i].y)
-        }else{
-          let yvertex = cases(shape_pts[i].y, linesbox[i].y);
-          linesbox[i].y.shift()
-            if(yvertex < average(linesbox[i].y) - 25){
-              yvertex = average(linesbox[i].y) - 25;
-            }else if (yvertex > average(linesbox[i].y) + 25) {
-              yvertex = average(linesbox[i].y) + 25;
-            };
-          linesbox[i].y.push(yvertex)
-        }
-    };
-  }
-
-  let findminmaxX = [];
-  let findminmaxY = [];
-  ctx.moveTo(average(startbox.x),average(startbox.y));
-  for(let i = 1; i < 4; ++i){
-    ctx.lineTo(average(linesbox[i].x),average(linesbox[i].y));
-    findminmaxX.push(average(linesbox[i].x));
-    findminmaxY.push(average(linesbox[i].y));
-  }
-  ctx.lineTo(average(linesbox[0].x),average(linesbox[0].y));
-  findminmaxX.push(average(linesbox[0].x));
-  findminmaxY.push(average(linesbox[0].y));
-  ctx.lineWidth=4;
-  ctx.stroke();
-  var coords = [];
-  //console.log(Math.min(...findminmaxX));
-  coords.push(Math.min(...findminmaxX));
-  coords.push(Math.min(...findminmaxY));
-  coords.push(Math.max(...findminmaxX));
-  coords.push(Math.max(...findminmaxY));
-  COORDS = []
-  COORDS.push(coords)
-  //aFrame.coords = coords;
-  
 }
 
 const setTrainImage = () => {
