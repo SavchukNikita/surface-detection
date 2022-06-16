@@ -1,15 +1,14 @@
 import jsfeat from './libs/jsfeat';
 import * as dat from 'dat.gui';
+import Stats from 'stats.js';
 
 const BLUR_RADIUS = 4;
-const TRAIN_LVLS = 4;
 const MAX_ALLOWED_KEYPOINTS = 500;
 
 const options = {
   blurRadius: 4,
   threshold: 20,
-  trainLvls: 4,
-  MotionEstimation: 4,
+  motionEstimation: 4,
   fastRadius: 3,
 }
 
@@ -30,6 +29,9 @@ let video = null;
 let imgWidth = 0;
 let imgHeight = 0;
 
+const stats = new Stats();
+// main
+
 const start = () => {
   imgWidth = canvas.width;
   imgHeight = canvas.height;
@@ -37,7 +39,7 @@ const start = () => {
   canvasCtx = canvas.getContext('2d');
 
   // base options
-  jsfeat.fast_corners.set_threshold(15)
+  jsfeat.fast_corners.set_threshold(options.threshold)
 
   for (let i = 0; i < imgWidth*imgHeight; i += 1) {
     screenCorners.push(new jsfeat.keypoint_t(0,0,0,0,-1));
@@ -49,27 +51,31 @@ const start = () => {
     }
   }
 
+  stats.showPanel(0);
+  document.body.appendChild( stats.dom );
+
   tick();
 }
 
 const tick = () => {
-  window.requestAnimationFrame(tick);
   canvasCtx.drawImage(video, 0, 0);
 
   if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+  stats.begin();
   
   imgU8 = new jsfeat.matrix_t(imgWidth, imgHeight, jsfeat.U8_t | jsfeat.C1_t);
   let imageData = canvasCtx.getImageData(0, 0, imgWidth, imgHeight);
 
   jsfeat.imgproc.grayscale(imageData.data, imgWidth, imgHeight, imgU8);
   let imgU8Blured = Object.assign(imgU8); 
-  jsfeat.imgproc.gaussian_blur(imgU8, imgU8Blured, BLUR_RADIUS);
+  jsfeat.imgproc.gaussian_blur(imgU8, imgU8Blured, options.blurRadius);
 
   let cornersNum = detectKeypoints(imgU8Blured, screenCorners);
 
   jsfeat.orb.describe(imgU8Blured, screenCorners, cornersNum, screenDescriptors);
   let dataU32 = new Uint32Array(imageData.data.buffer);
-  renderCorners(screenCorners, cornersNum, dataU32, imgWidth);
+  if(guiConfig.showKeypoints) renderCorners(screenCorners, cornersNum, dataU32, imgWidth);
 
   let numMatches = 0;
   let goodMatches = 0;
@@ -83,10 +89,17 @@ const tick = () => {
   canvasCtx.putImageData(imageData, 0, 0);
 
   if (numMatches) {
-    renderMatches(canvasCtx, matches, numMatches);
-    renderSurfaceShape();
+    if (guiConfig.showMatches) renderMatches(canvasCtx, matches, numMatches);
+    if (guiConfig.showSurfaceShape) renderSurfaceShape();
   }
+
+  stats.end();
+  window.requestAnimationFrame(tick);
 }
+
+
+//#region [rgba(0, 101, 252, 0.2)]
+// detecting
 
 const matchPattern = () => {
   let qCount = screenDescriptors.rows;
@@ -100,7 +113,7 @@ const matchPattern = () => {
       let bestIdx = -1;
       let bestLev = -1;
 
-      for(let lev = 0; lev < TRAIN_LVLS; lev += 1) {
+      for(let lev = 0; lev < options.trainLvls; lev += 1) {
           let levDescriptors = patternDescriptors[lev];
           let LDCount = levDescriptors.rows;
           let LDI32 = levDescriptors.buffer.i32;
@@ -126,6 +139,13 @@ const matchPattern = () => {
               LDOff += 8;
           }
       }
+
+      if(bestDist < options.threshold) {
+        matches[numMatches].screen_idx = qidx;
+        matches[numMatches].pattern_level = bestLev;
+        matches[numMatches].pattern_idx = bestIdx;
+        numMatches++;
+      }
       
 
       if(bestDist < 0.8*bestDistCurr) {
@@ -141,52 +161,9 @@ const matchPattern = () => {
   return numMatches;
 }
 
-function popcnt32(n) {
-  n -= ((n >> 1) & 0x55555555);
-  n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
-  return (((n + (n >> 4))& 0xF0F0F0F)* 0x1010101) >> 24;
-}
-
-const renderPatternImg = (src, dst, sw, sh, dw) => {
-  let alpha = (0xff << 24);
-  for(let i = 0; i < sh; ++i) {
-      for(let j = 0; j < sw; ++j) {
-          let pix = src[i*sw+j];
-          dst[i*dw+j] = alpha | (pix << 16) | (pix << 8) | pix;
-      }
-  }
-}
-
-const renderMatches = (ctx, matches, count) => {
-  for(let i = 0; i < count; ++i) {
-      let m = matches[i];
-      let screenPoint = screenCorners[m.screen_idx];
-      let patternPoint = patternCorners[m.pattern_lev][m.pattern_idx];
-
-      ctx.strokeStyle = "rgb(0,255,0)";
-      ctx.beginPath();
-      ctx.moveTo(screenPoint.x,screenPoint.y);
-      ctx.lineTo(patternPoint.x*0.5, patternPoint.y*0.5);
-      ctx.lineWidth=1;
-      ctx.stroke();
-  }
-}
-
-const renderCorners = (corners, count, img, step) => {
-  let pix = (0xff << 24) | (0x00 << 16) | (0xff << 8) | 0x00;
-  
-  for(let i=0; i < count; i+=1)
-  {
-      let x = corners[i].x;
-      let y = corners[i].y;
-      let off = (x + y * step);
-      img[off] = pix;
-  }
-}
-
-function findTransform(matches, count) {
+const findTransform = (matches, count) => {
   let motionModelKernel = new jsfeat.motion_model.homography2d();
-  let ransacParam = new jsfeat.ransac_params_t(4, 3, 0.5, 0.99);
+  let params = new jsfeat.ransac_params_t(options.motionEstimation, 3, 0.5, 0.99);
 
   let patternCoords = [];
   let screenCoords = [];
@@ -199,7 +176,7 @@ function findTransform(matches, count) {
       screenCoords[i] =  {"x":screenPoint.x, "y":screenPoint.y};
   }
 
-  let isSuccess = jsfeat.motion_estimator.lmeds(ransacParam,motionModelKernel, patternCoords, screenCoords, count, homography3Matrix, matchMask, 1000);
+  let isSuccess = jsfeat.motion_estimator.lmeds(params,motionModelKernel, patternCoords, screenCoords, count, homography3Matrix, matchMask, 1000);
   
   let goodPointsCount = 0;
   if (isSuccess) {
@@ -218,6 +195,151 @@ function findTransform(matches, count) {
   }
 
   return goodPointsCount;
+}
+
+const affineTransform = (matrix, w, h) => {
+  let pt = [
+    { x:0, y: 0},
+    { x: w, y: 0},
+    { x: w, y: h},
+    { x: 0, y: h},
+  ];
+
+  let px = 0;
+  let py = 0;
+  let z = 0;
+
+  for ( let i = 0; i < pt.length; i++ ) {
+    px = matrix[0]*pt[i].x + matrix[1]*pt[i].y + matrix[2];
+    py = matrix[3]*pt[i].x + matrix[4]*pt[i].y + matrix[5];
+    z = matrix[6]*pt[i].x + matrix[7]*pt[i].y + matrix[8];
+
+    pt[i].x = px/z;
+    pt[i].y = py/z;
+  }
+
+  return pt;
+}
+
+const detectKeypoints = (img, corners) => {
+  let count = jsfeat.fast_corners.detect(img, corners, options.fastRadius);
+
+  if(count > MAX_ALLOWED_KEYPOINTS) {
+    jsfeat.math.qsort(corners, 0, count-1, function (a,b) { return (b.score<a.score) });
+    count = MAX_ALLOWED_KEYPOINTS;
+  }
+
+  return count;
+}
+
+
+
+const setTrainImage = () => {
+  let i=0;
+  let sc = 1.0;
+  let maxPatternSize = 512;
+  let maxPerLevel = 300;
+  // магическое число
+  let scBase = Math.sqrt(2.0);
+  let levBaseImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
+  let levImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
+  let nWidth=0
+  let nHeight=0;
+  let cornersNum=0;
+  let sc0 = Math.min(maxPatternSize/imgU8.cols, maxPatternSize/imgU8.rows);
+
+  let levCorners, levDescriptors;
+
+  nWidth = (imgU8.cols*sc0)|0;
+  nHeight = (imgU8.rows*sc0)|0;
+
+  jsfeat.imgproc.resample(imgU8, levBaseImg, nWidth, nHeight);
+
+  patternPeview = new jsfeat.matrix_t(nWidth>>1, nHeight>>1, jsfeat.U8_t | jsfeat.C1_t);
+  jsfeat.imgproc.pyrdown(levBaseImg, patternPeview);
+
+  for(let lev=0; lev < options.trainLvls; lev += 1) {
+      patternCorners[lev] = [];
+      levCorners = patternCorners[lev];
+
+      i = (nWidth*nHeight) >> lev;
+      while(--i >= 0) {
+          levCorners[i] = new jsfeat.keypoint_t(0,0,0,0,-1);
+      }
+
+      patternDescriptors[lev] = new jsfeat.matrix_t(32, maxPerLevel, jsfeat.U8_t | jsfeat.C1_t);
+  }
+
+  levCorners = patternCorners[0];
+  levDescriptors = patternDescriptors[0];
+
+  jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, BLUR_RADIUS);
+  cornersNum = detectKeypoints(levImg, levCorners);
+  jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
+
+  sc /= scBase;
+
+  for(let lev = 1; lev < options.trainLvls; lev += 1) {
+      levCorners = patternCorners[lev];
+      levDescriptors = patternDescriptors[lev];
+
+      nWidth = (levBaseImg.cols*sc)|0;
+      nHeight = (levBaseImg.rows*sc)|0;
+
+      jsfeat.imgproc.resample(levBaseImg, levImg, nWidth, nHeight);
+      jsfeat.imgproc.gaussian_blur(levImg, levImg, BLUR_RADIUS);
+      cornersNum = detectKeypoints(levImg, levCorners);
+      jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
+
+      for(i = 0; i < cornersNum; ++i) {
+          levCorners[i].x *= 1./sc;
+          levCorners[i].y *= 1./sc;
+      }
+
+      sc /= scBase;
+  }
+}
+
+//#endregion
+
+// region[rgba(168, 0, 252, 0.1)]
+// graphics
+
+const renderMatches = (ctx, matches, count) => {
+  for(let i = 0; i < count; ++i) {
+      let m = matches[i];
+      let screenPoint = screenCorners[m.screen_idx];
+      let patternPoint = patternCorners[m.pattern_lev][m.pattern_idx];
+
+      ctx.strokeStyle = "rgb(0,255,0)";
+      ctx.beginPath();
+      ctx.moveTo(screenPoint.x,screenPoint.y);
+      ctx.lineTo(patternPoint.x*0.5, patternPoint.y*0.5);
+      ctx.lineWidth=1;
+      ctx.stroke();
+  }
+}
+
+const renderPatternImg = (src, dst, sw, sh, dw) => {
+  let alpha = (0xff << 24);
+  for(let i = 0; i < sh; ++i) {
+      for(let j = 0; j < sw; ++j) {
+          let pix = src[i*sw+j];
+          dst[i*dw+j] = alpha | (pix << 16) | (pix << 8) | pix;
+      }
+  }
+}
+
+const renderCorners = (corners, count, img, step) => {
+  let pix = (0xff << 24) | (0x00 << 16) | (0xff << 8) | 0x00;
+  
+  for(let i=0; i < count; i+=1)
+  {
+      let x = corners[i].x;
+      let y = corners[i].y;
+      let off = (x + y * step);
+      img[off] = pix;
+  }
 }
 
 let startbox = {x:[],y:[]};
@@ -295,6 +417,12 @@ const renderSurfaceShape = () => {
   canvasCtx.stroke();
 }
 
+//#endregion
+
+
+//#region[rgba(43, 255, 0, 0.1)]
+// utils
+
 const cases = (v, l) => {
   let vv = 0;
   const av = average(l);
@@ -316,121 +444,25 @@ const isIntersect = (c1, c2, c3, c4) => {
   return (s >= 0 && s <= 1 && t >= 0 && t <= 1);
 }
 
-const affineTransform = (matrix, w, h) => {
-  let pt = [
-    { x:0, y: 0},
-    { x: w, y: 0},
-    { x: w, y: h},
-    { x: 0, y: h},
-  ];
-
-  let px = 0;
-  let py = 0;
-  let z = 0;
-
-  for ( let i = 0; i < pt.length; i++ ) {
-    px = matrix[0]*pt[i].x + matrix[1]*pt[i].y + matrix[2];
-    py = matrix[3]*pt[i].x + matrix[4]*pt[i].y + matrix[5];
-    z = matrix[6]*pt[i].x + matrix[7]*pt[i].y + matrix[8];
-
-    pt[i].x = px/z;
-    pt[i].y = py/z;
-  }
-
-  return pt;
-}
-
-const setTrainImage = () => {
-  let i=0;
-  let sc = 1.0;
-  let maxPatternSize = 512;
-  let maxPerLevel = 300;
-  // магическое число
-  let scBase = Math.sqrt(2.0);
-  let levBaseImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
-  let levImg = new jsfeat.matrix_t(imgU8.cols, imgU8.rows, jsfeat.U8_t | jsfeat.C1_t);
-  let nWidth=0
-  let nHeight=0;
-  let cornersNum=0;
-  let sc0 = Math.min(maxPatternSize/imgU8.cols, maxPatternSize/imgU8.rows);
-
-  let levCorners, levDescriptors;
-
-  nWidth = (imgU8.cols*sc0)|0;
-  nHeight = (imgU8.rows*sc0)|0;
-
-  jsfeat.imgproc.resample(imgU8, levBaseImg, nWidth, nHeight);
-
-  patternPeview = new jsfeat.matrix_t(nWidth>>1, nHeight>>1, jsfeat.U8_t | jsfeat.C1_t);
-  jsfeat.imgproc.pyrdown(levBaseImg, patternPeview);
-
-  for(let lev=0; lev < TRAIN_LVLS; lev += 1) {
-      patternCorners[lev] = [];
-      levCorners = patternCorners[lev];
-
-      i = (nWidth*nHeight) >> lev;
-      while(--i >= 0) {
-          levCorners[i] = new jsfeat.keypoint_t(0,0,0,0,-1);
-      }
-
-      patternDescriptors[lev] = new jsfeat.matrix_t(32, maxPerLevel, jsfeat.U8_t | jsfeat.C1_t);
-  }
-
-  levCorners = patternCorners[0];
-  levDescriptors = patternDescriptors[0];
-
-  jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, BLUR_RADIUS);
-  cornersNum = detectKeypoints(levImg, levCorners);
-  jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
-
-  sc /= scBase;
-
-  for(let lev = 1; lev < TRAIN_LVLS; lev += 1) {
-      levCorners = patternCorners[lev];
-      levDescriptors = patternDescriptors[lev];
-
-      nWidth = (levBaseImg.cols*sc)|0;
-      nHeight = (levBaseImg.rows*sc)|0;
-
-      jsfeat.imgproc.resample(levBaseImg, levImg, nWidth, nHeight);
-      jsfeat.imgproc.gaussian_blur(levImg, levImg, BLUR_RADIUS);
-      cornersNum = detectKeypoints(levImg, levCorners);
-      jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
-
-      for(i = 0; i < cornersNum; ++i) {
-          levCorners[i].x *= 1./sc;
-          levCorners[i].y *= 1./sc;
-      }
-
-      sc /= scBase;
-  }
-};
-
-// утилиты
-
 const average = (arr) => {
   if (!arr.length) return;
 
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-const detectKeypoints = (img, corners) => {
-  let count = jsfeat.fast_corners.detect(img, corners, 17);
-
-  if(count > MAX_ALLOWED_KEYPOINTS) {
-    jsfeat.math.qsort(corners, 0, count-1, function (a,b) { return (b.score<a.score) });
-    count = MAX_ALLOWED_KEYPOINTS;
-  }
-
-  return count;
+const popcnt32 = (n) => {
+  n -= ((n >> 1) & 0x55555555);
+  n = (n & 0x33333333) + ((n >> 2) & 0x33333333);
+  return (((n + (n >> 4))& 0xF0F0F0F)* 0x1010101) >> 24;
 }
+
+//#endregion
 
 const guiConfig = {
   blurRadius: { min: 0, max: 10 },
-  threshold: { min: 0, max: 30 },
-  trainLvls: { min: 0, max: 4 },
-  MotionEstimation: { min: 0, max: 8 },
-  fastRadius: { min: 0, max: 5 },
+  threshold: { min: 0, max: 128 },
+  motionEstimation: { min: 0, max: 8 },
+  fastRadius: { min: 0, max: 10 },
   setTrainImage: setTrainImage,
   showKeypoints: true,
   showMatches: true,
