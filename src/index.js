@@ -1,16 +1,17 @@
 import jsfeat from './libs/jsfeat';
+import * as dat from 'dat.gui';
 
 const BLUR_RADIUS = 4;
-const U_MAX = new Int32Array([15,15,15,15,14,14,14,13,13,12,11,10,9,8,6,3,0]);
-const IMG_WIDTH = 640;
-const IMG_HEIGHT = 480;
 const TRAIN_LVLS = 4;
 const MAX_ALLOWED_KEYPOINTS = 500;
 
-
-const video = document.createElement('video');
-const canvas = document.getElementById('canvas');
-const canvasCtx = canvas.getContext('2d');
+const options = {
+  blurRadius: 4,
+  threshold: 20,
+  trainLvls: 4,
+  MotionEstimation: 4,
+  fastRadius: 3,
+}
 
 let screenCorners = [];
 let screenDescriptors = new jsfeat.matrix_t(32, 500, jsfeat.U8_t | jsfeat.C1_t);
@@ -23,13 +24,22 @@ let patternCorners = [];
 let imgU8;
 let patternPeview;
 
-const initApp = () => {
-  canvas.width = IMG_WIDTH;
-  canvas.height = IMG_HEIGHT;
+let canvas = null;
+let canvasCtx = null;
+let video = null;
+let imgWidth = 0;
+let imgHeight = 0;
 
+const start = () => {
+  imgWidth = canvas.width;
+  imgHeight = canvas.height;
+
+  canvasCtx = canvas.getContext('2d');
+
+  // base options
   jsfeat.fast_corners.set_threshold(15)
 
-  for (let i = 0; i < IMG_WIDTH*IMG_HEIGHT; i += 1) {
+  for (let i = 0; i < imgWidth*imgHeight; i += 1) {
     screenCorners.push(new jsfeat.keypoint_t(0,0,0,0,-1));
     matches[i] = {
       screen_idx: 0,
@@ -48,10 +58,10 @@ const tick = () => {
 
   if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
   
-  imgU8 = new jsfeat.matrix_t(IMG_WIDTH, IMG_HEIGHT, jsfeat.U8_t | jsfeat.C1_t);
-  let imageData = canvasCtx.getImageData(0, 0, IMG_WIDTH, IMG_HEIGHT);
+  imgU8 = new jsfeat.matrix_t(imgWidth, imgHeight, jsfeat.U8_t | jsfeat.C1_t);
+  let imageData = canvasCtx.getImageData(0, 0, imgWidth, imgHeight);
 
-  jsfeat.imgproc.grayscale(imageData.data, IMG_WIDTH, IMG_HEIGHT, imgU8);
+  jsfeat.imgproc.grayscale(imageData.data, imgWidth, imgHeight, imgU8);
   let imgU8Blured = Object.assign(imgU8); 
   jsfeat.imgproc.gaussian_blur(imgU8, imgU8Blured, BLUR_RADIUS);
 
@@ -59,13 +69,13 @@ const tick = () => {
 
   jsfeat.orb.describe(imgU8Blured, screenCorners, cornersNum, screenDescriptors);
   let dataU32 = new Uint32Array(imageData.data.buffer);
-  renderCorners(screenCorners, cornersNum, dataU32, IMG_WIDTH);
+  renderCorners(screenCorners, cornersNum, dataU32, imgWidth);
 
   let numMatches = 0;
   let goodMatches = 0;
 
   if (patternPeview) {
-    renderPatternImg(patternPeview.data, dataU32, patternPeview.cols, patternPeview.rows, IMG_WIDTH);
+    renderPatternImg(patternPeview.data, dataU32, patternPeview.cols, patternPeview.rows, imgWidth);
     numMatches = matchPattern();
     goodMatches = findTransform(matches, numMatches);
   }
@@ -404,21 +414,6 @@ const average = (arr) => {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
-navigator.mediaDevices.getUserMedia({ video: true })
-  .then((stream) => {
-    video.srcObject = stream;
-    video.play();
-  });
-
-video.addEventListener('loadeddata', initApp);
-
-const trainBtm = document.getElementById('trainBtn');
-trainBtm.addEventListener('click', setTrainImage)
-
-navigator.mediaDevices.enumerateDevices().then((list) => console.log(list));
-
-
-
 const detectKeypoints = (img, corners) => {
   let count = jsfeat.fast_corners.detect(img, corners, 17);
 
@@ -429,3 +424,51 @@ const detectKeypoints = (img, corners) => {
 
   return count;
 }
+
+const guiConfig = {
+  blurRadius: { min: 0, max: 10 },
+  threshold: { min: 0, max: 30 },
+  trainLvls: { min: 0, max: 4 },
+  MotionEstimation: { min: 0, max: 8 },
+  fastRadius: { min: 0, max: 5 },
+  setTrainImage: setTrainImage,
+  showKeypoints: true,
+  showMatches: true,
+  showSurfaceShape: true,
+}
+
+const initGUIModule = () => {
+  const gui = new dat.GUI();
+
+  for (let op in options) {
+    gui.add(options, op, guiConfig[op].min, guiConfig[op].max, 1);
+  }
+
+  gui.add(guiConfig, 'showKeypoints');
+  gui.add(guiConfig, 'showMatches');
+  gui.add(guiConfig, 'showSurfaceShape');
+
+  gui.add(guiConfig, 'setTrainImage');
+}
+
+const init = (canvasSelector, gui) => {
+  canvas = document.querySelector(canvasSelector);
+
+  if (!canvas) {
+    console.error('canvas selector is required');
+    return;
+  }
+
+  video = document.createElement('video');
+  video.addEventListener('loadeddata', start);
+
+  navigator.mediaDevices.getUserMedia({ video: true })
+    .then((stream) => {
+      video.srcObject = stream;
+      video.play();
+    });
+
+  if (gui) initGUIModule(gui);
+}
+
+init('#canvas', true);
