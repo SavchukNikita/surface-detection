@@ -2,7 +2,6 @@ import jsfeat from './libs/jsfeat';
 import * as dat from 'dat.gui';
 import Stats from 'stats.js';
 
-const BLUR_RADIUS = 4;
 const MAX_ALLOWED_KEYPOINTS = 500;
 
 const options = {
@@ -113,7 +112,7 @@ const matchPattern = () => {
       let bestIdx = -1;
       let bestLev = -1;
 
-      for(let lev = 0; lev < options.trainLvls; lev += 1) {
+      for(let lev = 0; lev < 4; lev += 1) {
           let levDescriptors = patternDescriptors[lev];
           let LDCount = levDescriptors.rows;
           let LDI32 = levDescriptors.buffer.i32;
@@ -258,7 +257,7 @@ const setTrainImage = () => {
   patternPeview = new jsfeat.matrix_t(nWidth>>1, nHeight>>1, jsfeat.U8_t | jsfeat.C1_t);
   jsfeat.imgproc.pyrdown(levBaseImg, patternPeview);
 
-  for(let lev=0; lev < options.trainLvls; lev += 1) {
+  for(let lev=0; lev < 4; lev += 1) {
       patternCorners[lev] = [];
       levCorners = patternCorners[lev];
 
@@ -273,13 +272,14 @@ const setTrainImage = () => {
   levCorners = patternCorners[0];
   levDescriptors = patternDescriptors[0];
 
-  jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, BLUR_RADIUS);
+  jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, options.blurRadius);
+  console.log(levCorners);
   cornersNum = detectKeypoints(levImg, levCorners);
   jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
   sc /= scBase;
 
-  for(let lev = 1; lev < options.trainLvls; lev += 1) {
+  for(let lev = 1; lev < 4; lev += 1) {
       levCorners = patternCorners[lev];
       levDescriptors = patternDescriptors[lev];
 
@@ -287,7 +287,7 @@ const setTrainImage = () => {
       nHeight = (levBaseImg.rows*sc)|0;
 
       jsfeat.imgproc.resample(levBaseImg, levImg, nWidth, nHeight);
-      jsfeat.imgproc.gaussian_blur(levImg, levImg, BLUR_RADIUS);
+      jsfeat.imgproc.gaussian_blur(levImg, levImg, options.blurRadius);
       cornersNum = detectKeypoints(levImg, levCorners);
       jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
