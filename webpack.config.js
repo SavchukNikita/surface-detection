@@ -2,7 +2,7 @@ const path = require('path');
 const webpack = require('webpack')
 
 module.exports = {
-  entry: './src/index.js',
+  entry: './src/AFrame.js',
   output: {
     filename: 'index.js',
     path: path.resolve(__dirname, 'dist'),
