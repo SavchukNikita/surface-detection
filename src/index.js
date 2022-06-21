@@ -28,6 +28,8 @@ let video = null;
 let imgWidth = 0;
 let imgHeight = 0;
 
+let COORDS = [];
+
 const stats = new Stats();
 // main
 
@@ -346,7 +348,6 @@ let startbox = {x:[],y:[]};
 let linesbox = [{x:[],y:[]}, {x:[],y:[]},{x:[],y:[]}, {x:[],y:[]}]
 
 const renderSurfaceShape = () => {
-  let coords = [];
   let shapePlots = affineTransform(homography3Matrix.data, patternPeview.cols * 2, patternPeview.rows * 2);
 
   canvasCtx.strokeStyle = "#0000FF"
@@ -410,11 +411,28 @@ const renderSurfaceShape = () => {
   
   for ( let i = 1; i < 4; i++ ) {
     canvasCtx.lineTo(average(linesbox[i].x), average(linesbox[i].y));
+    minmaxX.push(average(linesbox[i].x));
+    minmaxY.push(average(linesbox[i].y));
   }
 
   canvasCtx.lineTo(average(linesbox[0].x), average(linesbox[0].y));
+
+  minmaxX.push(average(linesbox[0].x));
+  minmaxY.push(average(linesbox[0].y));
+
   canvasCtx.lineWidth = 4;
   canvasCtx.stroke();
+
+  let coordsLocal = [];
+  coordsLocal.push(Math.min(...minmaxX));
+  coordsLocal.push(Math.min(...minmaxY));
+  coordsLocal.push(Math.max(...minmaxX));
+  coordsLocal.push(Math.max(...minmaxY));
+
+  COORDS = [];
+  COORDS.push(coordsLocal);
+
+  console.log(COORDS);
 }
 
 //#endregion
