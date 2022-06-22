@@ -91,7 +91,7 @@ const tick = () => {
   let goodMatches = 0;
 
   if (patternPeview) {
-    renderPatternImg(patternPeview.data, dataU32, patternPeview.cols, patternPeview.rows, imgWidth);
+    // renderPatternImg(patternPeview.data, dataU32, patternPeview.cols, patternPeview.rows, imgWidth);
     numMatches = matchPattern();
     goodMatches = findTransform(matches, numMatches);
   }
@@ -116,14 +116,12 @@ const tick = () => {
     };
 
     if (goodMatchesNum.reduce((a, b) => { return a + b}, 0) / goodMatchesNum.length > .5) {
+      getCoords();
       if (guiConfig.showSurfaceShape) renderSurfaceShape();
     }
   }
 
   stats.end();
-  
-  if (frameCount < 120) setTrainImage();
-  else frameCount = 0;
   
   window.requestAnimationFrame(tick);
 }
@@ -333,6 +331,78 @@ const setTrainImage = () => {
 }
 
 const getCoords = () => {
+  let shapePlots = affineTransform(homography3Matrix.data, patternPeview.cols * 2, patternPeview.rows * 2);
+  let intersect = false;
+
+  if (
+    isIntersect(shapePlots[0], shapePlots[1], shapePlots[2], shapePlots[3]) ||
+    isIntersect(shapePlots[1], shapePlots[2], shapePlots[3], shapePlots[0])
+  ) {
+        intersect = true;
+  }
+
+  const avesize = 20;
+
+  if (!intersect) {
+    for (let i = 0; i < 4; i++) {
+      if (i == 0) {
+        if (startbox.x.length < avesize) {
+          startbox.x.push(shapePlots[i].x)
+        } else {
+          startbox.x.shift();
+          let xvertex = cases(shapePlots[i].x, startbox.x);
+
+          startbox.x.push(xvertex);
+        }
+
+        if (startbox.y.length < avesize) {
+          startbox.y.push(shapePlots[i].y);
+        } else {
+          startbox.y.shift();
+          let yvertexs = cases(shapePlots[i].y, startbox.y);
+          startbox.y.push(yvertexs);
+        }
+      }
+
+      if (linesbox[i].x.length < avesize) {
+        linesbox[i].x.push(shapePlots[i].x)
+      } else {
+        linesbox[i].x.shift();
+        let xvertex = cases(shapePlots[i].x, linesbox[i].x);
+
+        linesbox[i].x.push(xvertex);
+      }
+
+      if (linesbox[i].y.length < avesize ) {
+        linesbox[i].y.push(shapePlots[i].y);
+      } else {
+        linesbox[i].y.shift();
+        let yvertex = cases(shapePlots[i].y, linesbox[i].y);
+        linesbox[i].y.push(yvertex);
+      }
+    }
+  }
+
+  let minmaxX = [];
+  let minmaxY = [];
+  
+  for ( let i = 1; i < 4; i++ ) {
+    minmaxX.push(average(linesbox[i].x));
+    minmaxY.push(average(linesbox[i].y));
+  }
+
+  minmaxX.push(average(linesbox[0].x));
+  minmaxY.push(average(linesbox[0].y));
+
+  let coordsLocal = [];
+  coordsLocal.push(Math.min(...minmaxX));
+  coordsLocal.push(Math.min(...minmaxY));
+  coordsLocal.push(Math.max(...minmaxX));
+  coordsLocal.push(Math.max(...minmaxY));
+
+  // COORDS = [];
+  COORDS.push(coordsLocal);
+
   const width = Math.round(60 * imgWidth / imgHeight);
   const height = 60;
   
@@ -341,8 +411,6 @@ const getCoords = () => {
   // --- the distances he mentions, they are the near and far attributes of the fustrum as in the aframe a-camera element
   const MIN_DETECTED_HEIGHT = 0.3; // ~At about 2.5m~ modified
   const MAX_DETECTED_HEIGHT = 0.8; // ~At about 0.5m~ modified
-
-  const res = [];
 
   for (let i = 0; i < COORDS.length; i++) {
     let coord = COORDS[i];
@@ -408,91 +476,19 @@ let startbox = {x:[],y:[]};
 let linesbox = [{x:[],y:[]}, {x:[],y:[]},{x:[],y:[]}, {x:[],y:[]}]
 
 const renderSurfaceShape = () => {
-  let shapePlots = affineTransform(homography3Matrix.data, patternPeview.cols * 2, patternPeview.rows * 2);
-
   canvasCtx.strokeStyle = "#0000FF"
   canvasCtx.beginPath();
-
-  let intersect = false;
-
-  if (
-    isIntersect(shapePlots[0], shapePlots[1], shapePlots[2], shapePlots[3]) ||
-    isIntersect(shapePlots[1], shapePlots[2], shapePlots[3], shapePlots[0])
-  ) {
-        intersect = true;
-  }
-
-  const avesize = 20;
-
-  if (!intersect) {
-    for (let i = 0; i < 4; i++) {
-      if (i == 0) {
-        if (startbox.x.length < avesize) {
-          startbox.x.push(shapePlots[i].x)
-        } else {
-          startbox.x.shift();
-          let xvertex = cases(shapePlots[i].x, startbox.x);
-
-          startbox.x.push(xvertex);
-        }
-
-        if (startbox.y.length < avesize) {
-          startbox.y.push(shapePlots[i].y);
-        } else {
-          startbox.y.shift();
-          let yvertexs = cases(shapePlots[i].y, startbox.y);
-          startbox.y.push(yvertexs);
-        }
-      }
-
-      if (linesbox[i].x.length < avesize) {
-        linesbox[i].x.push(shapePlots[i].x)
-      } else {
-        linesbox[i].x.shift();
-        let xvertex = cases(shapePlots[i].x, linesbox[i].x);
-
-        linesbox[i].x.push(xvertex);
-      }
-
-      if (linesbox[i].y.length < avesize ) {
-        linesbox[i].y.push(shapePlots[i].y);
-      } else {
-        linesbox[i].y.shift();
-        let yvertex = cases(shapePlots[i].y, linesbox[i].y);
-        linesbox[i].y.push(yvertex);
-      }
-    }
-  }
-
-  let minmaxX = [];
-  let minmaxY = [];
 
   canvasCtx.moveTo(average(startbox.x), average(startbox.y));
   
   for ( let i = 1; i < 4; i++ ) {
     canvasCtx.lineTo(average(linesbox[i].x), average(linesbox[i].y));
-    minmaxX.push(average(linesbox[i].x));
-    minmaxY.push(average(linesbox[i].y));
   }
 
   canvasCtx.lineTo(average(linesbox[0].x), average(linesbox[0].y));
 
-  minmaxX.push(average(linesbox[0].x));
-  minmaxY.push(average(linesbox[0].y));
-
   canvasCtx.lineWidth = 4;
   canvasCtx.stroke();
-
-  let coordsLocal = [];
-  coordsLocal.push(Math.min(...minmaxX));
-  coordsLocal.push(Math.min(...minmaxY));
-  coordsLocal.push(Math.max(...minmaxX));
-  coordsLocal.push(Math.max(...minmaxY));
-
-  // COORDS = [];
-  COORDS.push(coordsLocal);
-
-  getCoords();
 }
 
 //#endregion
@@ -541,7 +537,6 @@ const guiConfig = {
   threshold: { min: 0, max: 128 },
   motionEstimation: { min: 0, max: 8 },
   fastRadius: { min: 0, max: 10 },
-  setTrainImage: setTrainImage,
   showKeypoints: true,
   showMatches: true,
   showSurfaceShape: true,
@@ -557,8 +552,6 @@ const initGUIModule = () => {
   gui.add(guiConfig, 'showKeypoints');
   gui.add(guiConfig, 'showMatches');
   gui.add(guiConfig, 'showSurfaceShape');
-
-  gui.add(guiConfig, 'setTrainImage');
 }
 
 const init = (canvasSelector, gui, coords) => {
