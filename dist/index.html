@@ -17,6 +17,11 @@
     margin: 0 auto;
   }
 
+  a-scene {
+    width: 640px;
+    height: 480px;
+  }
+
   #canvas {
     transform: rotateY(180deg);
   }
@@ -25,8 +30,13 @@
   <div class="wrapper">
     <!-- <canvas id="canvas" width="640" height="480"></canvas>
     <div id="gui" class="gui"></div> -->
-    <a-scene>
-      <a-entity test></a-entity>
+    <a-scene embedded test>
+      <a-entity geometry="primitive: box; width: 0.1; height: 0.1; depth: 0.1" ></a-entity>
+      <a-camera userHeight="0" 
+      near="0.1"
+      far="1.5"
+      look-controls-enabled="false"
+      wasd-controls-enabled="false"></a-camera>
     </a-scene>
   </div>
 </body>

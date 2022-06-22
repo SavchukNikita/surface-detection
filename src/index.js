@@ -1,6 +1,7 @@
 import jsfeat from './libs/jsfeat';
 import * as dat from 'dat.gui';
 import Stats from 'stats.js';
+import * as THREE from 'three';
 
 const MAX_ALLOWED_KEYPOINTS = 500;
 
@@ -27,8 +28,13 @@ let canvasCtx = null;
 let video = null;
 let imgWidth = 0;
 let imgHeight = 0;
+let goodMatchesNum = [];
 
 let COORDS = [];
+
+let outputCoords = [];
+
+let frameCount = 0;
 
 const stats = new Stats();
 // main
@@ -91,10 +97,31 @@ const tick = () => {
 
   if (numMatches) {
     if (guiConfig.showMatches) renderMatches(canvasCtx, matches, numMatches);
-    if (guiConfig.showSurfaceShape) renderSurfaceShape();
+
+    if (goodMatchesNum.length > 20) {
+      goodMatchesNum.shift();
+    };
+
+    if (goodMatches > 5) {
+      goodMatchesNum.push(1);
+    } else {
+      goodMatchesNum.push(0);
+      COORDS = [];
+      while(outputCoords.length > 0) {
+        outputCoords.pop();
+      }
+    };
+
+    if (goodMatchesNum.reduce((a, b) => { return a + b}, 0) / goodMatchesNum.length > .5) {
+      if (guiConfig.showSurfaceShape) renderSurfaceShape();
+    }
   }
 
   stats.end();
+  
+  if (frameCount < 120) setTrainImage();
+  else frameCount = 0;
+  
   window.requestAnimationFrame(tick);
 }
 
@@ -236,6 +263,7 @@ const detectKeypoints = (img, corners) => {
 
 
 const setTrainImage = () => {
+  frameCount += 1;
   let i=0;
   let sc = 1.0;
   let maxPatternSize = 512;
@@ -299,6 +327,36 @@ const setTrainImage = () => {
       }
 
       sc /= scBase;
+  }
+}
+
+const getCoords = () => {
+  const width = Math.round(60 * imgWidth / imgHeight);
+  const height = 60;
+  
+  // Adjust camera frustum near and far clipping plane to match these distances.
+  // E: this is the calibration issue - he is APPROXIMATING it
+  // --- the distances he mentions, they are the near and far attributes of the fustrum as in the aframe a-camera element
+  const MIN_DETECTED_HEIGHT = 0.3; // ~At about 2.5m~ modified
+  const MAX_DETECTED_HEIGHT = 0.8; // ~At about 0.5m~ modified
+
+  const res = [];
+
+  for (let i = 0; i < COORDS.length; i++) {
+    let coord = COORDS[i];
+
+    if (isNaN(coord[0])) return;
+
+    const x = 2 * (coord[0] / width + coord[2] / width / 2) - 1;
+    const y = 1 - 2 * ((coord[1] / height) - (coord[3] / height) / 2);
+
+    const z = 1 - 2 * ((coord[3] / height) - MIN_DETECTED_HEIGHT) / (MAX_DETECTED_HEIGHT - MIN_DETECTED_HEIGHT);
+
+    if (outputCoords.length > 20) {
+      outputCoords.shift();
+    };
+
+    outputCoords.push({x, y, z});
   }
 }
 
@@ -429,10 +487,10 @@ const renderSurfaceShape = () => {
   coordsLocal.push(Math.max(...minmaxX));
   coordsLocal.push(Math.max(...minmaxY));
 
-  COORDS = [];
+  // COORDS = [];
   COORDS.push(coordsLocal);
 
-  console.log(COORDS);
+  getCoords();
 }
 
 //#endregion
@@ -501,13 +559,15 @@ const initGUIModule = () => {
   gui.add(guiConfig, 'setTrainImage');
 }
 
-const init = (canvasSelector, gui) => {
+const init = (canvasSelector, gui, coords) => {
   canvas = document.querySelector(canvasSelector);
 
   if (!canvas) {
     console.error('canvas selector is required');
     return;
   }
+
+  outputCoords = coords;
 
   video = document.createElement('video');
   video.addEventListener('loadeddata', start);
@@ -521,4 +581,6 @@ const init = (canvasSelector, gui) => {
   if (gui) initGUIModule(gui);
 }
 
-init('#canvas', true);
+export {
+  init
+};
