@@ -18,8 +18,6 @@ AFrame.registerComponent('test', {
       return;
     }
 
-    console.log(this.coords);
-
     for (let i = 0; i < this.coords.length; i++) {
       if (i >= this.entityList.length) {
         return;

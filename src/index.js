@@ -69,6 +69,9 @@ const tick = () => {
 
   if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
 
+  if (frameCount >= 120) setTrainImage();
+  else frameCount += 1;
+
   stats.begin();
   
   imgU8 = new jsfeat.matrix_t(imgWidth, imgHeight, jsfeat.U8_t | jsfeat.C1_t);
@@ -263,7 +266,7 @@ const detectKeypoints = (img, corners) => {
 
 
 const setTrainImage = () => {
-  frameCount += 1;
+  frameCount = 0;
   let i=0;
   let sc = 1.0;
   let maxPatternSize = 512;
@@ -303,7 +306,6 @@ const setTrainImage = () => {
   levDescriptors = patternDescriptors[0];
 
   jsfeat.imgproc.gaussian_blur(levBaseImg, levImg, options.blurRadius);
-  console.log(levCorners);
   cornersNum = detectKeypoints(levImg, levCorners);
   jsfeat.orb.describe(levImg, levCorners, cornersNum, levDescriptors);
 
