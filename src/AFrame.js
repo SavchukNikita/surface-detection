@@ -12,24 +12,24 @@ AFrame.registerComponent('test', {
   },
   tick() {
     //! комичу до ближайщего времени - нужны правки в востановление точек getCoords();
-    // if (!this.coords.length) {
-    //   for (let i = 0; i < this.entityList.length; i++) {
-    //     this.entityList[i].setAttribute('visible', false);
-    //   }
-    //   return;
-    // }
+    if (!this.coords.length) {
+      for (let i = 0; i < this.entityList.length; i++) {
+        this.entityList[i].setAttribute('visible', false);
+      }
+      return;
+    }
 
-    // for (let i = 0; i < this.coords.length; i++) {
-    //   if (i >= this.entityList.length) {
-    //     return;
-    //   }
+    for (let i = 0; i < this.coords.length; i++) {
+      if (i >= this.entityList.length) {
+        return;
+      }
 
-    //   const coord = this.coords[i];
+      const coord = this.coords[i];
       
-    //   const pos = new THREE.Vector3(coord.x/29, coord.y/29, -coord.z/49).unproject(this.el.camera);
-    //   this.entityList[i].setAttribute('position', pos);
-    //   this.entityList[i].setAttribute('visible', true);
-    // }
+      const pos = new THREE.Vector3(coord.x/29, coord.y/29, -coord.z/49).unproject(this.el.camera);
+      this.entityList[i].setAttribute('position', pos);
+      this.entityList[i].setAttribute('visible', true);
+    }
   },
   init() {
     const canvasId = "ar-canvas";

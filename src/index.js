@@ -7,8 +7,7 @@ const MAX_ALLOWED_KEYPOINTS = 500;
 
 const options = {
   blurRadius: 4,
-  threshold: 20,
-  motionEstimation: 4,
+  thresholdIntensity: 20,
   fastRadius: 3,
 }
 
@@ -46,7 +45,7 @@ const start = () => {
   canvasCtx = canvas.getContext('2d');
 
   // base options
-  jsfeat.fast_corners.set_threshold(options.threshold)
+  jsfeat.fast_corners.set_threshold(options.thresholdIntensity)
 
   for (let i = 0; i < imgWidth*imgHeight; i += 1) {
     screenCorners.push(new jsfeat.keypoint_t(0,0,0,0,-1));
@@ -169,7 +168,7 @@ const matchPattern = () => {
           }
       }
 
-      if(bestDist < options.threshold) {
+      if(bestDist < options.thresholdIntensity) {
         matches[numMatches].screen_idx = qidx;
         matches[numMatches].pattern_level = bestLev;
         matches[numMatches].pattern_idx = bestIdx;
@@ -192,7 +191,7 @@ const matchPattern = () => {
 
 const findTransform = (matches, count) => {
   let motionModelKernel = new jsfeat.motion_model.homography2d();
-  let params = new jsfeat.ransac_params_t(options.motionEstimation, 3, 0.5, 0.99);
+  let params = new jsfeat.ransac_params_t(4, 3, 0.5, 0.99);
 
   let patternCoords = [];
   let screenCoords = [];
@@ -534,10 +533,10 @@ const popcnt32 = (n) => {
 
 const guiConfig = {
   blurRadius: { min: 0, max: 10 },
-  threshold: { min: 0, max: 128 },
-  motionEstimation: { min: 0, max: 8 },
+  thresholdIntensity: { min: 0, max: 128 },
   fastRadius: { min: 0, max: 10 },
   showKeypoints: true,
+  setTrainImage: setTrainImage,
   showMatches: true,
   showSurfaceShape: true,
 }
